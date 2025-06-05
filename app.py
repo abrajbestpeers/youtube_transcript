@@ -13,7 +13,6 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 # Configuration
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload size
 DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', 'downloads')
 
 # Ensure download folder exists
@@ -40,7 +39,7 @@ def download():
         logger.info(f"Processing URL: {video_url}")
 
         ydl_opts = {
-            'format': 'bestaudio/best',
+            'format': '140',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',

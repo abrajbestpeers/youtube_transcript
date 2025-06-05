@@ -1,10 +1,10 @@
-functions-framework==3.*
+functions-framework==3.8.3
 flask==3.0.3
 yt-dlp==2024.10.22
-aws-lambda-powertools
+aws-lambda-powertools==3.4.1
 gunicorn==23.0.0
 werkzeug==3.0.6
-pytube
+pytube==15.0.0
 requests==2.32.3
 urllib3==1.26.20
 certifi==2025.4.26
@@ -18,3 +18,7 @@ itsdangerous==2.2.0
 blinker==1.8.2
 click==8.1.8
 MarkupSafe==2.1.5
+packaging==25.0
+watchdog==6.0.0
+deprecation==2.1.0
+cloudevents==1.12.0
