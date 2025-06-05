@@ -1,0 +1,5 @@
+functions-framework==3.*
+flask
+yt-dlp
+aws-lambda-powertools
+werkzeug
