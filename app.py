@@ -39,7 +39,23 @@ import functions_framework
 
 @functions_framework.http
 def function_handler(request):
-    return download()
+    request_json = request.get_json(silent=True)
+    if not request_json or 'youtube_url' not in request_json:
+        return {'message': 'YouTube URL is required', 'status': 400}
+
+    url = request_json['youtube_url']
+    ydl_opts = {
+        'format': "140",
+        'outtmpl': '%(id)s.%(ext)s',
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            video_url = info['url'] if 'url' in info else 'Video URL not found'
+            return video_url
+    except Exception as e:
+        return {'message': str(e), 'status': 500}
 
 app = function_handler
 
