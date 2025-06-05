@@ -1,3 +1,5 @@
+functions-framework==3.*
 flask
-yt-dlp
-gunicorn
+yt-dlp==2024.10.22
+aws-lambda-powertools
+werkzeug
