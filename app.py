@@ -29,7 +29,7 @@ USER_AGENTS = [
 def get_random_user_agent():
     return random.choice(USER_AGENTS)
 
-def download_with_retry(video_url, max_retries=3, delay=5):
+def download_with_retry(video_url, max_retries=5, delay=10):
     temp_audio_file = "/tmp/temp_audio.mp3"
     user_agent = get_random_user_agent()
     
@@ -64,6 +64,13 @@ def download_with_retry(video_url, max_retries=3, delay=5):
                 '--format', 'bestaudio/best',
                 '--prefer-ffmpeg',
                 '--postprocessor-args', '-vn',
+                '--socket-timeout', '30',  # Add socket timeout
+                '--retries', '10',  # Add retries for network issues
+                '--fragment-retries', '10',  # Add retries for fragment downloads
+                '--file-access-retries', '10',  # Add retries for file access
+                '--extractor-retries', '10',  # Add retries for extractor
+                '--ignore-errors',  # Continue on download errors
+                '--no-abort-on-error',  # Don't abort on error
                 '-o', temp_audio_file,
                 video_url
             ]
@@ -74,28 +81,32 @@ def download_with_retry(video_url, max_retries=3, delay=5):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=300  # 5-minute timeout
+                timeout=600  # 10-minute timeout
             )
             
             if result.returncode == 0 and os.path.exists(temp_audio_file):
-                logging.debug(f"Download successful on attempt {attempt + 1}")
-                return temp_audio_file
-            
-            logging.warning(f"Attempt {attempt + 1} failed: {result.stderr}")
+                file_size = os.path.getsize(temp_audio_file)
+                if file_size > 0:
+                    logging.debug(f"Download successful on attempt {attempt + 1}, file size: {file_size} bytes")
+                    return temp_audio_file
+                else:
+                    logging.warning(f"Download completed but file is empty on attempt {attempt + 1}")
+            else:
+                logging.warning(f"Attempt {attempt + 1} failed: {result.stderr}")
             
             if attempt < max_retries - 1:
-                sleep_time = delay * (attempt + 1)  # Exponential backoff
+                sleep_time = delay * (2 ** attempt)  # Exponential backoff with base delay
                 logging.debug(f"Waiting {sleep_time} seconds before retry...")
                 time.sleep(sleep_time)
             
         except subprocess.TimeoutExpired:
             logging.error(f"Download timed out on attempt {attempt + 1}")
             if attempt < max_retries - 1:
-                time.sleep(delay * (attempt + 1))
+                time.sleep(delay * (2 ** attempt))
         except Exception as e:
             logging.error(f"Error on attempt {attempt + 1}: {str(e)}")
             if attempt < max_retries - 1:
-                time.sleep(delay * (attempt + 1))
+                time.sleep(delay * (2 ** attempt))
     
     raise Exception(f"Failed to download after {max_retries} attempts")
 

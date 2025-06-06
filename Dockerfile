@@ -5,6 +5,9 @@ RUN apt-get update && \
     apt-get install -y \
     ffmpeg \
     curl \
+    wget \
+    gnupg \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -31,4 +34,4 @@ ENV FLASK_APP=app.py
 EXPOSE 10000
 
 # Run the application
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:10000", "--workers", "2", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info"] 
+CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--timeout", "600", "app:app"] 
