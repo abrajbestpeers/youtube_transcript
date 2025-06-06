@@ -27,102 +27,68 @@ def youtube_transcribe():
     video_url = request_json['youtube_url']
     
     try:
-        # Step 1: Download audio from YouTube
-        payload = {"url": video_url}
-        endpoint = "https://submagic-free-tools.fly.dev/api/youtube-to-audio"
-        if not endpoint:
-            return {'message': 'ENDPOINT environment variable is not set', 'status': 500}, 500
-        
-        response = requests.post(endpoint, json=payload)
-        response_data = response.json()
-        if response.status_code != 200 or 'audioUrl' not in response_data:
-            return {'message': 'Failed to retrieve video audio URL', 'status': response.status_code}, 500
-        
-        audio_url = response_data['audioUrl']
-        logging.debug(f"Retrieved audio URL: {audio_url}")
+        # Step 1: Download audio from YouTube using yt-dlp
+        logging.debug(f"Downloading audio from YouTube URL: {video_url}")
+        temp_audio_file = "/tmp/temp_audio.mp3"
+        try:
+            # Remove file if it exists
+            if os.path.exists(temp_audio_file):
+                os.remove(temp_audio_file)
+            result = subprocess.run([
+                'yt-dlp',
+                '-f', 'bestaudio',
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '0',
+                '-o', temp_audio_file,
+                video_url
+            ], capture_output=True, text=True)
+            if result.returncode != 0:
+                logging.error(f"yt-dlp failed: {result.stderr}")
+                return {'message': f'yt-dlp failed: {result.stderr}', 'status': 400}, 400
+            if not os.path.exists(temp_audio_file):
+                logging.error("yt-dlp did not produce an audio file.")
+                return {'message': 'yt-dlp did not produce an audio file.', 'status': 400}, 400
+            logging.debug(f"Audio downloaded successfully to {temp_audio_file}")
+        except Exception as e:
+            logging.error(f"Error downloading audio with yt-dlp: {str(e)}")
+            return {'message': f'Error downloading audio: {str(e)}', 'status': 500}, 500
 
-        # Step 2: Upload audio to AssemblyAI
-        assembly_audio_url = upload_audio_to_assemblyai(audio_url)
+        mp3_audio_file = temp_audio_file  # Already mp3
 
-        # Step 3: Transcribe the audio using AssemblyAI
+        # Step 3: Upload the converted MP3 file to AssemblyAI
+        logging.debug("Uploading audio to AssemblyAI...")
+        try:
+            with open(mp3_audio_file, "rb") as f:
+                files = {'file': (mp3_audio_file, f, 'audio/mp3')}
+                upload_response = requests.post(
+                    ASSEMBLYAI_UPLOAD_URL,
+                    headers={'authorization': ASSEMBLYAI_API_KEY},
+                    files=files
+                )
+            if upload_response.status_code != 200:
+                logging.error(f"Failed to upload audio to AssemblyAI: {upload_response.status_code} - {upload_response.text}")
+                raise Exception(f"Failed to upload audio to AssemblyAI: {upload_response.status_code} - {upload_response.text}")
+        except Exception as e:
+            logging.error(f"Error uploading to AssemblyAI: {str(e)}")
+            raise Exception(f"Failed to upload to AssemblyAI: {str(e)}")
+
+        # Step 4: Start transcription
+        assembly_audio_url = upload_response.json()['upload_url']
         transcript_id = start_transcription(assembly_audio_url)
         transcript_text = wait_for_transcription(transcript_id)
+
+        # Clean up temporary files
+        try:
+            os.remove(temp_audio_file)
+        except Exception as e:
+            logging.warning(f"Failed to clean up temporary files: {e}")
 
         return {'transcript': transcript_text, 'status': 200}, 200
 
     except Exception as e:
-        logging.error(f"Error during transcription: {e}")
+        logging.error(f"Error during transcription: {str(e)}")
         return {'message': str(e), 'status': 500}, 500
-
-def upload_audio_to_assemblyai(audio_url):
-    headers = {
-        'authorization': ASSEMBLYAI_API_KEY,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.youtube.com/',
-        'Origin': 'https://www.youtube.com'
-    }
-    logging.debug(f"Downloading audio from URL: {audio_url}")
-    
-    # Step 1: Download the audio file locally with .m4a extension
-    temp_audio_file = "/tmp/temp_audio.m4a"
-    try:
-        response = requests.get(audio_url, stream=True, headers=headers, allow_redirects=True)
-        if response.status_code != 200:
-            raise Exception(f"Failed to download audio from URL: {response.status_code} - {response.text}")
-        
-        with open(temp_audio_file, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        logging.debug(f"Audio file downloaded and saved locally at {temp_audio_file}")
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error downloading audio: {str(e)}")
-        raise Exception(f"Failed to download audio: {str(e)}")
-
-    # Step 2: Convert the audio to MP3 format using ffmpeg
-    mp3_audio_file = "/tmp/temp_audio.mp3"
-    try:
-        subprocess.run([
-            'ffmpeg', '-y',  # Force overwrite output file
-            '-i', temp_audio_file,
-            '-vn',  # No video
-            '-acodec', 'libmp3lame',  # Use MP3 codec
-            '-q:a', '2',  # High quality
-            mp3_audio_file
-        ], check=True, capture_output=True)
-        logging.debug(f"Audio converted to MP3 format at {mp3_audio_file}")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"FFmpeg conversion failed: {e.stderr.decode()}")
-        raise Exception("Failed to convert audio to MP3 format")
-
-    # Step 3: Upload the converted MP3 file to AssemblyAI
-    logging.debug("Uploading audio to AssemblyAI...")
-    try:
-        with open(mp3_audio_file, "rb") as f:
-            files = {'file': (mp3_audio_file, f, 'audio/mp3')}
-            upload_response = requests.post(
-                ASSEMBLYAI_UPLOAD_URL,
-                headers={'authorization': ASSEMBLYAI_API_KEY},
-                files=files
-            )
-        if upload_response.status_code != 200:
-            logging.error(f"Failed to upload audio to AssemblyAI: {upload_response.status_code} - {upload_response.text}")
-            raise Exception(f"Failed to upload audio to AssemblyAI: {upload_response.status_code} - {upload_response.text}")
-    except Exception as e:
-        logging.error(f"Error uploading to AssemblyAI: {str(e)}")
-        raise Exception(f"Failed to upload to AssemblyAI: {str(e)}")
-    
-    # Clean up temporary files
-    try:
-        os.remove(temp_audio_file)
-        os.remove(mp3_audio_file)
-    except Exception as e:
-        logging.warning(f"Failed to clean up temporary files: {e}")
-    
-    logging.debug(f"Audio uploaded successfully. AssemblyAI upload URL: {upload_response.json().get('upload_url')}")
-    return upload_response.json()['upload_url']
 
 def start_transcription(audio_url):
     headers = {
