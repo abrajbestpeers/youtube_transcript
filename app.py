@@ -7,6 +7,7 @@ import subprocess
 import random
 import json
 from datetime import datetime
+import tempfile
 
 app = Flask(__name__)
 
@@ -19,74 +20,105 @@ ASSEMBLYAI_API_KEY = "f9ae68ba947a46ddbefed5684f83428d"
 
 # List of common user agents
 USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15'
 ]
 
 def get_random_user_agent():
     return random.choice(USER_AGENTS)
 
+def create_cookies_file():
+    """Create a temporary cookies file with basic YouTube cookies."""
+    cookies_file = tempfile.NamedTemporaryFile(delete=False, mode='w')
+    cookies = {
+        'CONSENT': 'YES+cb',
+        'VISITOR_INFO1_LIVE': 'random_string',
+        'YSC': 'random_string',
+        'GPS': '1'
+    }
+    for name, value in cookies.items():
+        cookies_file.write(f'.youtube.com\tTRUE\t/\tTRUE\t2147483647\t{name}\t{value}\n')
+    cookies_file.close()
+    return cookies_file.name
+
 def download_with_retry(video_url, max_retries=3, delay=5):
     temp_audio_file = "/tmp/temp_audio.mp3"
     user_agent = get_random_user_agent()
+    cookies_file = create_cookies_file()
     
-    for attempt in range(max_retries):
+    try:
+        for attempt in range(max_retries):
+            try:
+                # Remove file if it exists
+                if os.path.exists(temp_audio_file):
+                    os.remove(temp_audio_file)
+                
+                # Construct yt-dlp command with enhanced options
+                cmd = [
+                    'yt-dlp',
+                    '--no-warnings',
+                    '--extract-audio',
+                    '--audio-format', 'mp3',
+                    '--audio-quality', '0',
+                    '--add-header', f'User-Agent: {user_agent}',
+                    '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    '--add-header', 'Accept-Language: en-US,en;q=0.5',
+                    '--add-header', 'Connection: keep-alive',
+                    '--add-header', 'Upgrade-Insecure-Requests: 1',
+                    '--add-header', 'Cache-Control: max-age=0',
+                    '--add-header', 'Sec-Fetch-Dest: document',
+                    '--add-header', 'Sec-Fetch-Mode: navigate',
+                    '--add-header', 'Sec-Fetch-Site: none',
+                    '--add-header', 'Sec-Fetch-User: ?1',
+                    '--cookies', cookies_file,
+                    '--geo-bypass',
+                    '--no-check-certificate',
+                    '--extractor-args', 'youtube:player_client=android',
+                    '--extractor-args', 'youtube:player_skip=webpage',
+                    '--extractor-args', 'youtube:player_params={"hl":"en"}',
+                    '-o', temp_audio_file,
+                    video_url
+                ]
+                
+                logging.debug(f"Attempt {attempt + 1}: Downloading with command: {' '.join(cmd)}")
+                
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5-minute timeout
+                )
+                
+                if result.returncode == 0 and os.path.exists(temp_audio_file):
+                    logging.debug(f"Download successful on attempt {attempt + 1}")
+                    return temp_audio_file
+                
+                logging.warning(f"Attempt {attempt + 1} failed: {result.stderr}")
+                
+                if attempt < max_retries - 1:
+                    sleep_time = delay * (attempt + 1)  # Exponential backoff
+                    logging.debug(f"Waiting {sleep_time} seconds before retry...")
+                    time.sleep(sleep_time)
+                
+            except subprocess.TimeoutExpired:
+                logging.error(f"Download timed out on attempt {attempt + 1}")
+                if attempt < max_retries - 1:
+                    time.sleep(delay * (attempt + 1))
+            except Exception as e:
+                logging.error(f"Error on attempt {attempt + 1}: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(delay * (attempt + 1))
+        
+        raise Exception(f"Failed to download after {max_retries} attempts")
+    
+    finally:
+        # Clean up cookies file
         try:
-            # Remove file if it exists
-            if os.path.exists(temp_audio_file):
-                os.remove(temp_audio_file)
-            
-            # Construct yt-dlp command with enhanced options
-            cmd = [
-                'yt-dlp',
-                '--no-warnings',
-                '--extract-audio',
-                '--audio-format', 'mp3',
-                '--audio-quality', '0',
-                '--add-header', f'User-Agent: {user_agent}',
-                '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                '--add-header', 'Accept-Language: en-US,en;q=0.5',
-                '--add-header', 'Connection: keep-alive',
-                '--add-header', 'Upgrade-Insecure-Requests: 1',
-                '--add-header', 'Cache-Control: max-age=0',
-                '--geo-bypass',
-                '--no-check-certificate',
-                '-o', temp_audio_file,
-                video_url
-            ]
-            
-            logging.debug(f"Attempt {attempt + 1}: Downloading with command: {' '.join(cmd)}")
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5-minute timeout
-            )
-            
-            if result.returncode == 0 and os.path.exists(temp_audio_file):
-                logging.debug(f"Download successful on attempt {attempt + 1}")
-                return temp_audio_file
-            
-            logging.warning(f"Attempt {attempt + 1} failed: {result.stderr}")
-            
-            if attempt < max_retries - 1:
-                sleep_time = delay * (attempt + 1)  # Exponential backoff
-                logging.debug(f"Waiting {sleep_time} seconds before retry...")
-                time.sleep(sleep_time)
-            
-        except subprocess.TimeoutExpired:
-            logging.error(f"Download timed out on attempt {attempt + 1}")
-            if attempt < max_retries - 1:
-                time.sleep(delay * (attempt + 1))
-        except Exception as e:
-            logging.error(f"Error on attempt {attempt + 1}: {str(e)}")
-            if attempt < max_retries - 1:
-                time.sleep(delay * (attempt + 1))
-    
-    raise Exception(f"Failed to download after {max_retries} attempts")
+            os.unlink(cookies_file)
+        except:
+            pass
 
 @app.route('/')
 def hello():

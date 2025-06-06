@@ -4,6 +4,7 @@ FROM python:3.9-slim
 RUN apt-get update && \
     apt-get install -y \
     ffmpeg \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -12,9 +13,10 @@ WORKDIR /app
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies and yt-dlp
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -U yt-dlp
+    pip install --no-cache-dir -U yt-dlp && \
+    yt-dlp -U
 
 # Copy the rest of the application
 COPY . .
