@@ -1,91 +1,60 @@
 import os
 from flask import Flask, request, jsonify
-import yt_dlp
-import logging
-from werkzeug.middleware.proxy_fix import ProxyFix
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import requests
 
 app = Flask(__name__)
-# Handle proxy headers for deployment
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-
-# Configuration
-DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', 'downloads')
-
-# Ensure download folder exists
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
 @app.route('/')
 def hello():
-    return jsonify({
-        'status': 'healthy',
-        'message': 'YouTube Audio Downloader API is running'
-    })
+    return 'Hello, World!'
 
 @app.route('/youtube-import', methods=['POST'])
 def download():
+    request_json = request.get_json(silent=True)
+    if not request_json or 'youtube_url' not in request_json:
+        return {'message': 'YouTube URL is required', 'status': 400}, 400
+
+    video_url = request_json['youtube_url']
+    
     try:
-        request_json = request.get_json(silent=True)
-        if not request_json or 'youtube_url' not in request_json:
-            return jsonify({
-                'message': 'YouTube URL is required',
-                'status': 400
-            }), 400
-
-        video_url = request_json['youtube_url']
-        logger.info(f"Processing URL: {video_url}")
-
-        ydl_opts = {
-            'format': '140',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
+        # Construct the request body
+        payload = {
+            # "filenamePattern": "pretty",
+            # "isAudioOnly": True,
+            "url": video_url
         }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                info = ydl.extract_info(video_url, download=True)
-                audio_file = f"{info['title']}.mp3"
-                file_path = os.path.join(DOWNLOAD_FOLDER, audio_file)
-                
-                if not os.path.exists(file_path):
-                    raise Exception("File was not downloaded successfully")
+        # Use the environment variable 'ENDPOINT' instead of hardcoded URL
+        endpoint = os.getenv('ENDPOINT')
+        if not endpoint:
+            return {'message': 'ENDPOINT environment variable is not set', 'status': 500}, 500
+        
+        response = requests.post(endpoint, json=payload)
+        response_data = response.json()
 
-                return jsonify({
-                    'message': 'Download successful',
-                    'audio_file': audio_file,
-                    'file_path': file_path,
-                    'status': 200
-                }), 200
-
-            except yt_dlp.utils.DownloadError as e:
-                logger.error(f"Download error: {str(e)}")
-                return jsonify({
-                    'message': f"Download failed: {str(e)}",
-                    'status': 400
-                }), 400
+        if response.status_code != 200 or 'audioUrl' not in response_data:
+            return {'message': 'Failed to retrieve video URL', 'status': response.status_code}, 500
+        
+        video_download_url = response_data['audioUrl']
+        return video_download_url, 200
 
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        return jsonify({
-            'message': f"An error occurred: {str(e)}",
-            'status': 500
-        }), 500
+        return {'message': str(e), 'status': 500}, 500
 
+# This part is for running locally or in a server that supports Flask directly
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    # Use gunicorn in production, Flask's development server in development
-    if os.environ.get('ENVIRONMENT') == 'production':
-        # This will be used by gunicorn
-        app
-    else:
-        app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=True)
+
+# This part is for running as a Cloud Function with functions_framework
+import functions_framework
+
+@functions_framework.http
+def function_handler(request):
+    return download()
+
+# The 'app' variable is required by the functions_framework, so we assign the Flask app to it
+app = function_handler
+
+# This ensures that the function is reloaded properly when you make a code change during local testing
+if __name__ == '__main__':
+    function_handler()
