@@ -51,10 +51,3 @@ import functions_framework
 @functions_framework.http
 def function_handler(request):
     return download()
-
-# The 'app' variable is required by the functions_framework, so we assign the Flask app to it
-app = function_handler
-
-# This ensures that the function is reloaded properly when you make a code change during local testing
-if __name__ == '__main__':
-    function_handler()
