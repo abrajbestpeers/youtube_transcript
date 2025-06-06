@@ -44,10 +44,3 @@ def download():
 # This part is for running locally or in a server that supports Flask directly
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=True)
-
-# This part is for running as a Cloud Function with functions_framework
-import functions_framework
-
-@functions_framework.http
-def function_handler(request):
-    return download()
