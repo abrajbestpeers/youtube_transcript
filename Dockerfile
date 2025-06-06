@@ -8,7 +8,13 @@ RUN apt-get update && \
     wget \
     gnupg \
     ca-certificates \
+    tor \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure Tor
+RUN echo "SocksPort 9050" >> /etc/tor/torrc && \
+    echo "DataDirectory /var/lib/tor" >> /etc/tor/torrc && \
+    echo "Log notice stdout" >> /etc/tor/torrc
 
 # Set working directory
 WORKDIR /app
@@ -33,5 +39,5 @@ ENV FLASK_APP=app.py
 # Expose the port
 EXPOSE 10000
 
-# Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--timeout", "600", "app:app"] 
+# Start Tor and then the application
+CMD service tor start && gunicorn --bind 0.0.0.0:10000 --timeout 600 app:app 

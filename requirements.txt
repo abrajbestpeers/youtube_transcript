@@ -13,3 +13,4 @@ certifi==2024.2.2
 charset-normalizer==3.3.2
 idna==3.6
 yt-dlp==2024.10.22
+PySocks==1.7.1

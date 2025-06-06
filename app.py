@@ -58,19 +58,20 @@ def download_with_retry(video_url, max_retries=5, delay=10):
                 '--add-header', 'Sec-Fetch-User: ?1',
                 '--geo-bypass',
                 '--no-check-certificate',
-                '--extractor-args', 'youtube:player_client=android',
+                '--extractor-args', 'youtube:player_client=web',
                 '--extractor-args', 'youtube:player_skip=webpage',
                 '--extractor-args', 'youtube:player_params={"hl":"en"}',
                 '--format', 'bestaudio/best',
                 '--prefer-ffmpeg',
                 '--postprocessor-args', '-vn',
-                '--socket-timeout', '30',  # Add socket timeout
-                '--retries', '10',  # Add retries for network issues
-                '--fragment-retries', '10',  # Add retries for fragment downloads
-                '--file-access-retries', '10',  # Add retries for file access
-                '--extractor-retries', '10',  # Add retries for extractor
-                '--ignore-errors',  # Continue on download errors
-                '--no-abort-on-error',  # Don't abort on error
+                '--socket-timeout', '30',
+                '--retries', '10',
+                '--fragment-retries', '10',
+                '--file-access-retries', '10',
+                '--extractor-retries', '10',
+                '--ignore-errors',
+                '--no-abort-on-error',
+                '--proxy', 'socks5://127.0.0.1:9050',  # Use Tor proxy
                 '-o', temp_audio_file,
                 video_url
             ]
