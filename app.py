@@ -56,21 +56,30 @@ def youtube_transcribe():
 
 def upload_audio_to_assemblyai(audio_url):
     headers = {
-        'authorization': ASSEMBLYAI_API_KEY
+        'authorization': ASSEMBLYAI_API_KEY,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.youtube.com/',
+        'Origin': 'https://www.youtube.com'
     }
     logging.debug(f"Downloading audio from URL: {audio_url}")
     
     # Step 1: Download the audio file locally with .m4a extension
     temp_audio_file = "/tmp/temp_audio.m4a"
-    response = requests.get(audio_url, stream=True)
-    if response.status_code != 200:
-        raise Exception(f"Failed to download audio from URL: {response.status_code} - {response.text}")
-    
-    with open(temp_audio_file, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-    logging.debug(f"Audio file downloaded and saved locally at {temp_audio_file}")
+    try:
+        response = requests.get(audio_url, stream=True, headers=headers, allow_redirects=True)
+        if response.status_code != 200:
+            raise Exception(f"Failed to download audio from URL: {response.status_code} - {response.text}")
+        
+        with open(temp_audio_file, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        logging.debug(f"Audio file downloaded and saved locally at {temp_audio_file}")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error downloading audio: {str(e)}")
+        raise Exception(f"Failed to download audio: {str(e)}")
 
     # Step 2: Convert the audio to MP3 format using ffmpeg
     mp3_audio_file = "/tmp/temp_audio.mp3"
@@ -90,16 +99,20 @@ def upload_audio_to_assemblyai(audio_url):
 
     # Step 3: Upload the converted MP3 file to AssemblyAI
     logging.debug("Uploading audio to AssemblyAI...")
-    with open(mp3_audio_file, "rb") as f:
-        files = {'file': (mp3_audio_file, f, 'audio/mp3')}
-        upload_response = requests.post(
-            ASSEMBLYAI_UPLOAD_URL,
-            headers=headers,
-            files=files
-        )
-    if upload_response.status_code != 200:
-        logging.error(f"Failed to upload audio to AssemblyAI: {upload_response.status_code} - {upload_response.text}")
-        raise Exception(f"Failed to upload audio to AssemblyAI: {upload_response.status_code} - {upload_response.text}")
+    try:
+        with open(mp3_audio_file, "rb") as f:
+            files = {'file': (mp3_audio_file, f, 'audio/mp3')}
+            upload_response = requests.post(
+                ASSEMBLYAI_UPLOAD_URL,
+                headers={'authorization': ASSEMBLYAI_API_KEY},
+                files=files
+            )
+        if upload_response.status_code != 200:
+            logging.error(f"Failed to upload audio to AssemblyAI: {upload_response.status_code} - {upload_response.text}")
+            raise Exception(f"Failed to upload audio to AssemblyAI: {upload_response.status_code} - {upload_response.text}")
+    except Exception as e:
+        logging.error(f"Error uploading to AssemblyAI: {str(e)}")
+        raise Exception(f"Failed to upload to AssemblyAI: {str(e)}")
     
     # Clean up temporary files
     try:
