@@ -4,7 +4,6 @@ FROM python:3.9-slim
 RUN apt-get update && \
     apt-get install -y \
     ffmpeg \
-    yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -14,7 +13,8 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -U yt-dlp
 
 # Copy the rest of the application
 COPY . .

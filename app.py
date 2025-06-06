@@ -4,6 +4,9 @@ import requests
 import time
 import logging
 import subprocess
+import random
+import json
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -13,6 +16,77 @@ logging.basicConfig(level=logging.DEBUG)
 ASSEMBLYAI_UPLOAD_URL = "https://api.assemblyai.com/v2/upload"
 ASSEMBLYAI_TRANSCRIPT_URL = "https://api.assemblyai.com/v2/transcript"
 ASSEMBLYAI_API_KEY = "f9ae68ba947a46ddbefed5684f83428d"
+
+# List of common user agents
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15'
+]
+
+def get_random_user_agent():
+    return random.choice(USER_AGENTS)
+
+def download_with_retry(video_url, max_retries=3, delay=5):
+    temp_audio_file = "/tmp/temp_audio.mp3"
+    user_agent = get_random_user_agent()
+    
+    for attempt in range(max_retries):
+        try:
+            # Remove file if it exists
+            if os.path.exists(temp_audio_file):
+                os.remove(temp_audio_file)
+            
+            # Construct yt-dlp command with enhanced options
+            cmd = [
+                'yt-dlp',
+                '--no-warnings',
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '0',
+                '--add-header', f'User-Agent: {user_agent}',
+                '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                '--add-header', 'Accept-Language: en-US,en;q=0.5',
+                '--add-header', 'Connection: keep-alive',
+                '--add-header', 'Upgrade-Insecure-Requests: 1',
+                '--add-header', 'Cache-Control: max-age=0',
+                '--geo-bypass',
+                '--no-check-certificate',
+                '-o', temp_audio_file,
+                video_url
+            ]
+            
+            logging.debug(f"Attempt {attempt + 1}: Downloading with command: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5-minute timeout
+            )
+            
+            if result.returncode == 0 and os.path.exists(temp_audio_file):
+                logging.debug(f"Download successful on attempt {attempt + 1}")
+                return temp_audio_file
+            
+            logging.warning(f"Attempt {attempt + 1} failed: {result.stderr}")
+            
+            if attempt < max_retries - 1:
+                sleep_time = delay * (attempt + 1)  # Exponential backoff
+                logging.debug(f"Waiting {sleep_time} seconds before retry...")
+                time.sleep(sleep_time)
+            
+        except subprocess.TimeoutExpired:
+            logging.error(f"Download timed out on attempt {attempt + 1}")
+            if attempt < max_retries - 1:
+                time.sleep(delay * (attempt + 1))
+        except Exception as e:
+            logging.error(f"Error on attempt {attempt + 1}: {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(delay * (attempt + 1))
+    
+    raise Exception(f"Failed to download after {max_retries} attempts")
 
 @app.route('/')
 def hello():
@@ -27,40 +101,20 @@ def youtube_transcribe():
     video_url = request_json['youtube_url']
     
     try:
-        # Step 1: Download audio from YouTube using yt-dlp
+        # Step 1: Download audio from YouTube using yt-dlp with retry logic
         logging.debug(f"Downloading audio from YouTube URL: {video_url}")
-        temp_audio_file = "/tmp/temp_audio.mp3"
         try:
-            # Remove file if it exists
-            if os.path.exists(temp_audio_file):
-                os.remove(temp_audio_file)
-            result = subprocess.run([
-                'yt-dlp',
-                '-f', 'bestaudio',
-                '--extract-audio',
-                '--audio-format', 'mp3',
-                '--audio-quality', '0',
-                '-o', temp_audio_file,
-                video_url
-            ], capture_output=True, text=True)
-            if result.returncode != 0:
-                logging.error(f"yt-dlp failed: {result.stderr}")
-                return {'message': f'yt-dlp failed: {result.stderr}', 'status': 400}, 400
-            if not os.path.exists(temp_audio_file):
-                logging.error("yt-dlp did not produce an audio file.")
-                return {'message': 'yt-dlp did not produce an audio file.', 'status': 400}, 400
+            temp_audio_file = download_with_retry(video_url)
             logging.debug(f"Audio downloaded successfully to {temp_audio_file}")
         except Exception as e:
-            logging.error(f"Error downloading audio with yt-dlp: {str(e)}")
+            logging.error(f"Error downloading audio: {str(e)}")
             return {'message': f'Error downloading audio: {str(e)}', 'status': 500}, 500
 
-        mp3_audio_file = temp_audio_file  # Already mp3
-
-        # Step 3: Upload the converted MP3 file to AssemblyAI
+        # Step 2: Upload the audio file to AssemblyAI
         logging.debug("Uploading audio to AssemblyAI...")
         try:
-            with open(mp3_audio_file, "rb") as f:
-                files = {'file': (mp3_audio_file, f, 'audio/mp3')}
+            with open(temp_audio_file, "rb") as f:
+                files = {'file': (temp_audio_file, f, 'audio/mp3')}
                 upload_response = requests.post(
                     ASSEMBLYAI_UPLOAD_URL,
                     headers={'authorization': ASSEMBLYAI_API_KEY},
@@ -73,7 +127,7 @@ def youtube_transcribe():
             logging.error(f"Error uploading to AssemblyAI: {str(e)}")
             raise Exception(f"Failed to upload to AssemblyAI: {str(e)}")
 
-        # Step 4: Start transcription
+        # Step 3: Start transcription
         assembly_audio_url = upload_response.json()['upload_url']
         transcript_id = start_transcription(assembly_audio_url)
         transcript_text = wait_for_transcription(transcript_id)
