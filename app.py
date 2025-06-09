@@ -39,7 +39,7 @@ def download():
         logger.info(f"Processing URL: {video_url}")
 
         ydl_opts = {
-            'format': '140',
+            'format': 'bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -49,6 +49,17 @@ def download():
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
+            # Add YouTube access configuration
+            'geo_bypass': True,
+            'referer': 'https://www.youtube.com/',
+            'socket_timeout': 30,
+            'retries': 10,
+            'fragment_retries': 10,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'cookiefile': os.path.join(DOWNLOAD_FOLDER, 'cookies.txt'),
+            'noplaylist': True,
+            'ignoreerrors': False,
+            'verbose': False,
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -68,11 +79,12 @@ def download():
                 }), 200
 
             except yt_dlp.utils.DownloadError as e:
-                logger.error(f"Download error: {str(e)}")
+                logger.error(f"YouTube access error: {str(e)}")
                 return jsonify({
-                    'message': f"Download failed: {str(e)}",
-                    'status': 400
-                }), 400
+                    'message': f"YouTube content unavailable: {str(e)}",
+                    'status': 403,
+                    'error_code': e.exc_info[0].code if hasattr(e, 'exc_info') else 'UNKNOWN'
+                }), 403
 
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
